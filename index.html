@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Dashboard</title>
+<style>
+body{
+    margin:0;
+    font-family:Arial,sans-serif;
+    background:#111;
+    color:#fff;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    height:100vh;
+    text-align:center;
+}
+.box{
+    padding:30px;
+    max-width:420px;
+}
+h1{
+    margin-bottom:10px;
+}
+p{
+    opacity:.8;
+}
+.loader{
+    width:42px;
+    height:42px;
+    border:4px solid #444;
+    border-top-color:#fff;
+    border-radius:50%;
+    margin:20px auto;
+    animation:spin 1s linear infinite;
+}
+@keyframes spin{
+    to{transform:rotate(360deg);}
+}
+</style>
+</head>
+<body>
+<div class="box">
+    <h1>Dashboard coming soon</h1>
+    <div class="loader"></div>
+    <p>Page is being prepared.</p>
+</div>
+</body>
+</html>
