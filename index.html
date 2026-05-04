@@ -100,7 +100,7 @@
                     <span class="text-sm font-medium">All Off</span>
                 </button>
                 <!-- Audio React -->
-                <button onclick="broadcastCommand({effect: 1, color: '#000000', brightness: 25, speed: 5, audio_preset: 4})" class="bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-xl p-3 md:p-4 flex flex-col items-center justify-center card-transition group shadow-md">
+                <button onclick="broadcastCommand({effect: 1, color: '#000000', brightness: 25, speed: 5, audio_preset: 8})" class="bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-xl p-3 md:p-4 flex flex-col items-center justify-center card-transition group shadow-md">
                     <i class="fa-solid fa-chart-simple text-xl md:text-2xl text-purple-500 mb-2 group-hover:scale-110 card-transition"></i>
                     <span class="text-sm font-medium">Audio Sync</span>
                 </button>
@@ -448,7 +448,22 @@
         }
 
         function changeParam(serial, key, value) {
+             // Если мы включаем лампу (переходим с 0 на любой эффект)
+            if (key === 'effect' && value !== 0 && virtualDB[serial].state.effect === 0) {
+                // Если текущая сохраненная яркость почти на нуле, ставим дефолтную (200)
+                if (virtualDB[serial].state.brightness < 5) {
+                    virtualDB[serial].state.brightness = 25;
+                }
+            }
+
             virtualDB[serial].state[key] = value;
+
+            // Если мы включили режим Audio (1), принудительно ставим Preset 8 и цвет Радуги
+            if (key === 'effect' && value === 1) {
+                virtualDB[serial].state.audio_preset = 8;
+                virtualDB[serial].state.color = "#000000";
+            }
+
             updateCardUI(serial);
             sendCommand(serial);
         }
@@ -457,48 +472,45 @@
             const device = virtualDB[serial];
             const s = device.state;
             const isOn = s.effect !== 0;
-            const isOnline = device.online; // Читаем статус
+            const isOnline = device.online;
 
-            // 1. Главная карточка и плашка Offline
             const card = document.getElementById(`card-${serial}`);
             const badge = document.getElementById(`offline-badge-${serial}`);
-            if(card) {
-                // Если оффлайн - делаем карточку серой (grayscale) и полупрозрачной
-                card.className = `bg-gray-800 border border-gray-700 rounded-2xl p-5 shadow-lg card-transition relative overflow-hidden ${isOnline ? '' : 'opacity-40 grayscale'}`;
-            }
-            if(badge) {
-                isOnline ? badge.classList.add('hidden') : badge.classList.remove('hidden');
-            }
-
-            // 2. Блокируем ВСЕ элементы управления, если ОФФЛАЙН
             const controls = document.getElementById(`controls-${serial}`);
+            
+            // Если оффлайн - делаем карточку серой и полупрозрачной
+            if(card) card.className = `bg-gray-800 border border-gray-700 rounded-2xl p-5 shadow-lg card-transition relative overflow-hidden ${isOnline ? '' : 'opacity-40 grayscale'}`;
+            if(badge) isOnline ? badge.classList.add('hidden') : badge.classList.remove('hidden');
+            
+            // БЛОКИРОВКА ПАНЕЛИ
             if(controls) {
-                // Если лампа выключена (isOn=false) ИЛИ она оффлайн, блокируем блок эффектов
-                controls.className = (isOnline && isOn) ? '' : 'opacity-50 pointer-events-none transition-opacity duration-300';
+                if (!isOnline) {
+                    // Если нет сети - блокируем всё жестко
+                    controls.className = 'opacity-30 pointer-events-none transition-opacity duration-300';
+                } else if (!isOn) {
+                    // Если выключено (но в сети) - делаем бледным, НО кликабельным!
+                    controls.className = 'opacity-50 transition-opacity duration-300';
+                } else {
+                    // Работает нормально
+                    controls.className = 'opacity-100 transition-opacity duration-300';
+                }
             }
 
-            // 3. Тумблер On/Off
             document.getElementById(`power-${serial}`).checked = isOn;
+
             const pwrLbl = document.getElementById(`power-lbl-${serial}`);
             const pwrChk = document.getElementById(`power-${serial}`);
-            if(pwrLbl) {
-                // Если оффлайн, тумблер тоже не кликабельный!
-                pwrLbl.className = `relative inline-flex items-center cursor-pointer mt-1 flex-shrink-0 ${isOnline ? '' : 'opacity-30 pointer-events-none'}`;
-            }
-            if(pwrChk) {
-                pwrChk.disabled = (!isOnline);
-            }
+            if(pwrLbl) pwrLbl.className = `relative inline-flex items-center cursor-pointer mt-1 flex-shrink-0 ${(isOnline && isOn) ? '' : 'opacity-30 pointer-events-none'}`;
+            if(pwrChk) pwrChk.disabled = (!isOnline || !isOn);
             
-            // 4. Скрываем ползунки, если выключено или оффлайн
+            // Ползунки скрываются только если Выключено
             const slidersWrap = document.getElementById(`sliders-wrap-${serial}`);
             if(slidersWrap) {
-                slidersWrap.className = `transition-all duration-300 ${(isOnline && isOn) ? 'opacity-100' : 'opacity-0 h-0 overflow-hidden mb-0'}`;
+                slidersWrap.className = `transition-all duration-300 ${isOn ? 'opacity-100 max-h-40' : 'opacity-0 max-h-0 overflow-hidden mb-0'}`;
             }
 
-            // 5. Цвет фона свечения
-            document.getElementById(`glow-${serial}`).style.backgroundColor = (isOnline && isOn) ? s.color : 'transparent';
+            document.getElementById(`glow-${serial}`).style.backgroundColor = isOn ? s.color : 'transparent';
 
-            // 6. Подсветка активной плитки эффекта (Только если онлайн и включено)
             for(let i=1; i<=5; i++) {
                 const tile = document.getElementById(`eff-${serial}-${i}`);
                 if(!tile) continue;
@@ -509,7 +521,6 @@
                 }
             }
 
-            // 7. Скрытие/показ блоков в зависимости от режима
             const cb = document.getElementById(`color-block-${serial}`);
             const sb = document.getElementById(`spd-block-${serial}`);
             const audioBtn = document.getElementById(`audio-settings-btn-${serial}`);
