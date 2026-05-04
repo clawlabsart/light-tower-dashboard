@@ -1,50 +1,600 @@
 <!DOCTYPE html>
-<html lang="ru">
+<html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Dashboard</title>
-<style>
-body{
-    margin:0;
-    font-family:Arial,sans-serif;
-    background:#111;
-    color:#fff;
-    display:flex;
-    align-items:center;
-    justify-content:center;
-    height:100vh;
-    text-align:center;
-}
-.box{
-    padding:30px;
-    max-width:420px;
-}
-h1{
-    margin-bottom:10px;
-}
-p{
-    opacity:.8;
-}
-.loader{
-    width:42px;
-    height:42px;
-    border:4px solid #444;
-    border-top-color:#fff;
-    border-radius:50%;
-    margin:20px auto;
-    animation:spin 1s linear infinite;
-}
-@keyframes spin{
-    to{transform:rotate(360deg);}
-}
-</style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Claw Labs Control Center</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.1/mqttws31.min.js" type="text/javascript"></script>
+
+    <style>
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height: 16px; width: 16px;
+            border-radius: 50%;
+            background: #ffffff;
+            cursor: pointer;
+            box-shadow: 0 0 5px rgba(0,0,0,0.5);
+        }
+        .effect-active {
+            ring-width: 2px; ring-color: #ffffff;
+            ring-offset-width: 2px; ring-offset-color: #1f2937;
+            transform: scale(0.95);
+        }
+        .card-transition { transition: all 0.3s ease; }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+    </style>
 </head>
-<body>
-<div class="box">
-    <h1>Dashboard coming soon</h1>
-    <div class="loader"></div>
-    <p>Page is being prepared.</p>
-</div>
+<body class="bg-gray-900 text-white min-h-screen font-sans overflow-x-hidden">
+
+    <!-- ЭКРАН ЛОГИНА -->
+    <div id="login-screen" class="fixed inset-0 bg-gray-900 z-[100] flex items-center justify-center transition-opacity duration-500">
+        <div class="bg-gray-800 p-8 rounded-2xl shadow-2xl w-full max-w-md border border-gray-700 m-4">
+            <div class="text-center mb-8">
+                <h1 class="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-emerald-400">
+                    <i class="fa-solid fa-wave-square mr-2"></i>Claw Labs
+                </h1>
+                <p class="text-gray-400 mt-2">Welcome to your smart home!</p>
+            </div>
+            <div id="login-error" class="hidden bg-red-500/20 border border-red-500/50 text-red-400 p-3 rounded-lg text-sm mb-4 text-center"></div>
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-gray-400 text-sm mb-1">Username</label>
+                    <input type="text" id="username" value="admin" class="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-3 focus:border-blue-500 focus:outline-none transition text-white">
+                </div>
+                <div>
+                    <label class="block text-gray-400 text-sm mb-1">Password</label>
+                    <input type="password" id="password" value="admin" class="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-3 focus:border-blue-500 focus:outline-none transition text-white">
+                </div>
+                <button onclick="attemptLogin()" class="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 px-4 rounded-lg mt-6 transition shadow-lg">
+                    Sign In
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ГЛАВНЫЙ ДАШБОРД -->
+    <div id="dashboard-screen" class="hidden opacity-0 transition-opacity duration-500">
+        <!-- НАВИГАЦИЯ -->
+        <nav class="bg-gray-800 border-b border-gray-700 px-6 py-4 flex justify-between items-center sticky top-0 z-40 shadow-md">
+            <div class="text-xl md:text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-emerald-400 flex items-center">
+                <i class="fa-solid fa-wave-square mr-2"></i>Claw Labs Smart Light
+                <div id="mqtt-status" class="w-2 h-2 rounded-full bg-red-500 ml-3 animate-pulse" title="Disconnected"></div>
+            </div>
+        
+            <div class="flex items-center space-x-4">
+                <button onclick="openModal('modal-add')" class="bg-blue-600 hover:bg-blue-500 text-sm font-semibold py-2 px-4 rounded-full card-transition hidden md:block shadow-md">
+                    <i class="fa-solid fa-plus mr-1"></i> Add Device
+                </button>
+                <div class="relative">
+                    <!-- Аватар с буквой А -->
+                    <button onclick="document.getElementById('user-menu').classList.toggle('hidden')" class="w-10 h-10 rounded-full bg-gradient-to-tr from-purple-500 to-pink-500 border-2 border-gray-700 focus:outline-none shadow-md flex items-center justify-center font-bold text-white text-lg drop-shadow-md">
+                        A
+                    </button>
+                    <div id="user-menu" class="hidden absolute right-0 mt-2 w-48 bg-gray-800 border border-gray-700 rounded-lg shadow-xl py-2 z-50">
+                        <div class="px-4 py-2 border-b border-gray-700 mb-2">
+                            <p class="text-sm text-gray-400">Signed in as</p>
+                            <p class="text-sm font-bold text-white truncate">Admin</p>
+                        </div>
+                        <button onclick="openModal('modal-add'); document.getElementById('user-menu').classList.add('hidden')" class="w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 hover:text-white md:hidden">
+                            <i class="fa-solid fa-plus w-5"></i> Add Device
+                        </button>
+                        <button onclick="doLogout()" class="w-full text-left px-4 py-2 text-sm text-red-400 hover:bg-gray-700 hover:text-red-300 transition">
+                            <i class="fa-solid fa-arrow-right-from-bracket w-5"></i> Sign Out
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </nav>
+
+        <main class="max-w-6xl mx-auto p-4 md:p-6">
+            
+            <!-- QUICK ACTIONS (5 плиток) -->
+            <h2 class="text-gray-400 text-xs font-bold uppercase tracking-wider mb-3 ml-1">Quick Actions</h2>
+            <div class="grid grid-cols-2 md:grid-cols-5 gap-3 md:gap-4 mb-8">
+                <!-- All Off -->
+                <button onclick="broadcastCommand({effect: 0, color: '#000000', brightness: 0, speed: 5, audio_preset: 0})" class="bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-xl p-3 md:p-4 flex flex-col items-center justify-center card-transition group shadow-md">
+                    <i class="fa-regular fa-lightbulb text-xl md:text-2xl text-gray-500 mb-2 group-hover:scale-110 card-transition"></i>
+                    <span class="text-sm font-medium">All Off</span>
+                </button>
+                <!-- Audio React -->
+                <button onclick="broadcastCommand({effect: 1, color: '#000000', brightness: 25, speed: 5, audio_preset: 4})" class="bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-xl p-3 md:p-4 flex flex-col items-center justify-center card-transition group shadow-md">
+                    <i class="fa-solid fa-chart-simple text-xl md:text-2xl text-purple-500 mb-2 group-hover:scale-110 card-transition"></i>
+                    <span class="text-sm font-medium">Audio Sync</span>
+                </button>
+                <!-- Rainbow -->
+                <button onclick="broadcastCommand({effect: 3, color: '#000000', brightness: 25, speed: 5, audio_preset: 0})" class="bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-xl p-3 md:p-4 flex flex-col items-center justify-center card-transition group shadow-md">
+                    <i class="fa-solid fa-rainbow text-xl md:text-2xl text-blue-400 mb-2 group-hover:scale-110 card-transition"></i>
+                    <span class="text-sm font-medium">Rainbow</span>
+                </button>
+                <!-- Aurora -->
+                <button onclick="broadcastCommand({effect: 4, color: '#00ffaa', brightness: 25, speed: 5, audio_preset: 0})" class="bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-xl p-3 md:p-4 flex flex-col items-center justify-center card-transition group shadow-md">
+                    <i class="fa-solid fa-wind text-xl md:text-2xl text-emerald-400 mb-2 group-hover:scale-110 card-transition"></i>
+                    <span class="text-sm font-medium">Aurora</span>
+                </button>
+                <!-- Campfire -->
+                <button onclick="broadcastCommand({effect: 5, color: '#ff0000', brightness: 25, speed: 5, audio_preset: 0})" class="bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-xl p-3 md:p-4 flex flex-col items-center justify-center card-transition group shadow-md">
+                    <i class="fa-solid fa-fire text-xl md:text-2xl text-orange-500 mb-2 group-hover:scale-110 card-transition"></i>
+                    <span class="text-sm font-medium">Campfire</span>
+                </button>
+            </div>
+
+            <!-- DEVICES GRID -->
+            <h2 class="text-gray-400 text-xs font-bold uppercase tracking-wider mb-3 ml-1">My Devices</h2>
+            <div id="devices-container" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                <!-- JS Inject Cards Here -->
+            </div>
+        </main>
+    </div>
+
+    <!-- МОДАЛЬНЫЕ ОКНА -->
+    <div id="modal-add" class="fixed inset-0 bg-black/70 backdrop-blur-sm hidden flex items-center justify-center z-50">
+        <div class="bg-gray-800 border border-gray-700 rounded-2xl p-6 md:p-8 max-w-sm w-full m-4 shadow-2xl relative">
+            <button onclick="closeModal('modal-add')" class="absolute top-4 right-4 text-gray-400 hover:text-white"><i class="fa-solid fa-xmark text-xl"></i></button>
+            <h3 class="text-2xl font-bold text-white mb-2">Pair Device</h3>
+            <p class="text-gray-400 text-sm mb-5">Enter the Serial Number printed on the lamp.</p>
+            <input type="text" id="add-serial" placeholder="PICO-XXXX" class="w-full bg-gray-900 border border-gray-600 rounded-lg px-4 py-3 mb-2 text-white uppercase font-mono">
+            <input type="text" id="add-name" placeholder="Device name (optional)" class="w-full bg-gray-900 border border-gray-600 rounded-lg px-4 py-3 mb-2 text-white">
+            <p id="add-error" class="text-red-400 text-xs mb-4 hidden"></p>
+            <button onclick="claimDevice()" class="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 rounded-lg shadow-lg">Pair Now</button>
+        </div>
+    </div>
+
+    <div id="modal-audio" class="fixed inset-0 bg-black/70 backdrop-blur-sm hidden flex items-center justify-center z-50">
+        <div class="bg-gray-800 border border-gray-700 rounded-2xl p-6 w-full max-w-sm m-4 shadow-2xl relative">
+            <button onclick="closeModal('modal-audio')" class="absolute top-4 right-4 text-gray-400 hover:text-white"><i class="fa-solid fa-xmark text-xl"></i></button>
+            <h3 class="text-xl font-bold text-white mb-4"><i class="fa-solid fa-sliders text-purple-400 mr-2"></i>Audio Settings</h3>
+            <input type="hidden" id="audio-target-device">
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-xs text-gray-400 uppercase tracking-wider mb-2">Frequency Source</label>
+                    <select id="audio-src" class="w-full bg-gray-900 border border-gray-600 rounded-lg px-3 py-2 text-white">
+                        <option value="0">All Frequencies (VU)</option>
+                        <option value="1">Bass Only</option>
+                        <option value="2">Mid Only</option>
+                        <option value="3">Treble Only</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs text-gray-400 uppercase tracking-wider mb-2">Sensitivity Profile</label>
+                    <select id="audio-sens" class="w-full bg-gray-900 border border-gray-600 rounded-lg px-3 py-2 text-white">
+                        <option value="0">Normal (Smooth)</option>
+                        <option value="1">Party (Aggressive)</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs text-gray-400 uppercase tracking-wider mb-2">Geometry</label>
+                    <select id="audio-geo" class="w-full bg-gray-900 border border-gray-600 rounded-lg px-3 py-2 text-white">
+                        <option value="0">Center Out</option>
+                        <option value="1">Bottom Up</option>
+                    </select>
+                </div>
+            </div>
+            <button onclick="saveAudioSettings()" class="w-full bg-purple-600 hover:bg-purple-500 text-white font-bold py-3 mt-6 rounded-lg shadow-lg">Apply Settings</button>
+        </div>
+    </div>
+
+
+    <script>
+        // --- 1. MQTT SETTINGS ---
+        const MQTT_BROKER = "broker.hivemq.com";
+        const MQTT_PORT = 8884; 
+        const ROOT_TOPIC = "clawlabs_art"; 
+        let mqttClient;
+
+        // --- 2. VIRTUAL DATABASE ---
+        let virtualDB = {
+            "PICO-6828": { claimed: true,  online: false, state: { effect: 2, color: "#000000", brightness: 25, speed: 5, audio_preset: 0 } },
+            "PICO-5C2B": { claimed: true,  online: false, state: { effect: 2, color: "#000000", brightness: 25, speed: 5, audio_preset: 0 } },
+            "PICO-782B": { claimed: true,  online: false, state: { effect: 2, color: "#000000", brightness: 25, speed: 5, audio_preset: 0 } },
+            "PICO-BC28": { claimed: true,  online: false, state: { effect: 2, color: "#000000", brightness: 25, speed: 5, audio_preset: 0 } }
+        };
+
+        // --- 3. LOGIN & AUTH ---
+        function attemptLogin() {
+            const u = document.getElementById('username').value;
+            const p = document.getElementById('password').value;
+            const err = document.getElementById('login-error');
+            
+            if (u === 'admin' && p === 'admin') {
+                document.getElementById('login-screen').classList.add('opacity-0');
+                setTimeout(() => {
+                    document.getElementById('login-screen').classList.add('hidden');
+                    document.getElementById('dashboard-screen').classList.remove('hidden');
+                    setTimeout(() => document.getElementById('dashboard-screen').classList.remove('opacity-0'), 50);
+                    initApp(); 
+                }, 500);
+            } else {
+                err.textContent = "Invalid credentials. Try admin / admin";
+                err.classList.remove('hidden');
+            }
+        }
+
+        function doLogout() {
+            if(mqttClient) mqttClient.disconnect();
+            
+            document.getElementById('username').value = '';
+            document.getElementById('password').value = '';
+            document.getElementById('login-error').classList.add('hidden');
+
+            document.getElementById('dashboard-screen').classList.add('opacity-0');
+            setTimeout(() => {
+                document.getElementById('dashboard-screen').classList.add('hidden');
+                document.getElementById('login-screen').classList.remove('hidden');
+                document.getElementById('user-menu').classList.add('hidden');
+                setTimeout(() => document.getElementById('login-screen').classList.remove('opacity-0'), 50);
+            }, 500);
+        }
+
+        // --- 4. APP INITIALIZATION ---
+        function initApp() {
+            renderDashboard();
+            connectMQTT();
+        }
+
+        // --- 5. MQTT LOGIC ---
+        function connectMQTT() {
+            const clientId = "web_" + Math.random().toString(16).substr(2, 8);
+            mqttClient = new Paho.MQTT.Client(MQTT_BROKER, MQTT_PORT, clientId);
+            
+            mqttClient.onConnectionLost = (responseObject) => {
+                const dot = document.getElementById('mqtt-status');
+                dot.classList.remove('bg-green-500');
+                dot.classList.add('bg-red-500', 'animate-pulse');
+                dot.title = "Disconnected";
+                console.log("[MQTT] Connection lost! Reconnecting...");
+                
+                // Если мы потеряли связь с брокером, переводим ВСЕ лампы в оффлайн для надежности
+                Object.keys(virtualDB).forEach(serial => {
+                    virtualDB[serial].online = false;
+                    if (virtualDB[serial].claimed) updateCardUI(serial);
+                });
+                
+                setTimeout(connectMQTT, 3000); 
+            };
+            
+            mqttClient.onMessageArrived = (msg) => {
+                const parts = msg.destinationName.split('/');
+                if(parts.length < 3) return;
+                const serial = parts[1];
+                const msgType = parts[2]; // 'state' или 'status'
+                
+                if(virtualDB[serial]) {
+                    // === ОБРАБОТКА СТАТУСА (ONLINE / OFFLINE) ===
+                    if (msgType === 'status') {
+                        const isOnline = (msg.payloadString === 'online');
+                        virtualDB[serial].online = isOnline;
+                        updateCardUI(serial);
+                        console.log(`[LWT] ${serial} is now ${msg.payloadString.toUpperCase()}`);
+                        return;
+                    }
+                    
+                    // === ОБРАБОТКА ДАННЫЙ РЕЖИМА (STATE) ===
+                    if (msgType === 'state') {
+                        try {
+                            const payload = JSON.parse(msg.payloadString);
+                            
+                            // Если пришел State, значит устройство точно живо
+                            //virtualDB[serial].online = true;
+                            
+                            let colorHex = "#000000";
+                            if (payload.color_int !== undefined) {
+                                colorHex = '#' + payload.color_int.toString(16).padStart(6, '0');
+                            }
+                            
+                            virtualDB[serial].state.effect = payload.effect;
+                            virtualDB[serial].state.color = colorHex;
+                            virtualDB[serial].state.brightness = payload.brightness;
+                            virtualDB[serial].state.speed = payload.speed;
+                            virtualDB[serial].state.audio_preset = payload.audio_preset;
+                            
+                            updateCardUI(serial);
+                            // console.log(`[SYNC] Updated ${serial} from Lamp`);
+                        } catch(e) { console.error("Parse error:", e) }
+                    }
+                }
+            };
+
+            mqttClient.connect({
+                useSSL: true, 
+                onSuccess: () => {
+                    const dot = document.getElementById('mqtt-status');
+                    dot.classList.remove('bg-red-500', 'animate-pulse');
+                    dot.classList.add('bg-green-500');
+                    dot.title = "Connected";
+                    console.log("[MQTT] Connected to HiveMQ successfully!");
+                    
+                    // Подписываемся на ВСЁ (и на state, и на status)
+                    mqttClient.subscribe(`${ROOT_TOPIC}/+/#`);
+                },
+                onFailure: (e) => console.error("[MQTT] Connection Failed:", e)
+            });
+        }
+
+        function sendCommand(serial) {
+            if(!mqttClient || !mqttClient.isConnected()) {
+                console.warn("[MQTT] Cannot send, client is not connected.");
+                return;
+            }
+            const state = virtualDB[serial].state;
+            
+            let colorInt = 0;
+            if(state.effect === 2 && state.color && state.color.startsWith('#')) {
+                colorInt = parseInt(state.color.replace('#', ''), 16);
+            }
+            
+            const payload = {
+                effect: state.effect,
+                color_int: colorInt,
+                brightness: state.brightness,
+                speed: state.speed,
+                audio_preset: state.audio_preset
+            };
+            
+            const topic = `${ROOT_TOPIC}/${serial}/command`;
+            const message = new Paho.MQTT.Message(JSON.stringify(payload));
+            message.destinationName = topic;
+            mqttClient.send(message);
+            
+            console.log(`[MQTT] Sent to ${topic}:`, payload);
+        }
+
+        function broadcastCommand(updates) {
+            Object.keys(virtualDB).forEach(serial => {
+                if (virtualDB[serial].claimed) {
+                    Object.assign(virtualDB[serial].state, updates);
+                    updateCardUI(serial);
+                    sendCommand(serial);
+                }
+            });
+        }
+
+        // --- 6. UI RENDER & UPDATE ---
+        function renderDashboard() {
+            const container = document.getElementById('devices-container');
+            container.innerHTML = '';
+            
+            Object.keys(virtualDB).forEach(serial => {
+                if (virtualDB[serial].claimed) {
+                    virtualDB[serial].name = virtualDB[serial]._name || virtualDB[serial].name || serial;
+                    container.innerHTML += generateCardHTML(serial, virtualDB[serial]);
+                }
+            });
+            
+            Object.keys(virtualDB).forEach(serial => {
+                if (virtualDB[serial].claimed) updateCardUI(serial);
+            });
+        }
+
+        function generateCardHTML(serial, device) {
+            const s = device.state;
+            const isOn = s.effect !== 0;
+            const isOnline = device.online;
+            const opacityClass = isOnline ? '' : 'opacity-40 grayscale';
+            
+            return `
+            <div id="card-${serial}" class="bg-gray-800 border border-gray-700 rounded-2xl p-5 shadow-lg card-transition relative overflow-hidden ${opacityClass}">
+                <!-- Плашка Offline (По центру сверху, рыжая) -->
+                <div id="offline-badge-${serial}" class="absolute top-0 left-0 right-0 flex justify-center mt-3 z-20 ${isOnline ? 'hidden' : ''}">
+                    <span class="bg-orange-500/20 text-orange-400 text-xs font-bold px-3 py-1 rounded border border-orange-500/50 tracking-widest shadow-lg">OFFLINE</span>
+                </div>
+             
+                <div id="glow-${serial}" class="absolute top-0 right-0 w-32 h-32 rounded-full blur-3xl opacity-20 -mr-10 -mt-10" style="background-color: ${isOn ? s.color : 'transparent'}"></div>
+                
+                <div class="flex justify-between items-start mb-5 relative z-10">
+                    <div class="flex-1 pr-4">
+                        <div class="flex items-center justify-between">
+                            <h3 class="text-lg font-bold text-gray-100 truncate">
+                                ${device.name || serial}
+                            </h3>
+                            <button onclick="removeDevice('${serial}')" class="text-gray-500 hover:text-red-500 transition ml-2"><i class="fa-solid fa-trash-can"></i></button>
+                        </div>
+                        <p class="text-xs text-gray-500 font-mono mt-1">${serial}</p>
+                    </div>
+                    <label id="power-lbl-${serial}" class="relative inline-flex items-center cursor-pointer mt-1 flex-shrink-0 ${(isOnline && isOn) ? '' : 'opacity-30 pointer-events-none'}">
+                        <input type="checkbox" id="power-${serial}" class="sr-only peer" ${isOn ? 'checked' : ''} onchange="if(!this.checked) turnOff('${serial}'); else this.checked=false;" ${(!isOnline || !isOn) ? 'disabled' : ''}>
+                        <div class="w-10 h-5 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-400 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-500"></div>
+                    </label>
+                </div>
+
+                <div id="controls-${serial}" class="${isOnline ? '' : 'pointer-events-none'}">
+                    
+                    <div id="sliders-wrap-${serial}" class="transition-all duration-300 ${isOn ? 'opacity-100' : 'opacity-0 h-0 overflow-hidden mb-0'}">
+                        <div id="color-block-${serial}" class="flex items-center justify-between mb-4 bg-gray-900/50 p-2 rounded-xl">
+                            <div class="flex items-center space-x-3">
+                                <input type="color" id="color-${serial}" value="${s.color}" onchange="changeParam('${serial}', 'color', this.value)" class="w-8 h-8 rounded-full cursor-pointer bg-transparent border-0 p-0">
+                                <span class="text-xs text-gray-400 uppercase font-medium">Color</span>
+                            </div>
+                        </div>
+
+                        <div class="space-y-4 mb-5">
+                            <div id="bri-block-${serial}">
+                                <div class="flex justify-between text-[10px] text-gray-500 mb-1 font-medium"><i class="fa-solid fa-sun opacity-50"></i><span>BRIGHTNESS</span><i class="fa-solid fa-sun"></i></div>
+                                <input type="range" id="bri-${serial}" min="1" max="255" value="${s.brightness}" onchange="changeParam('${serial}', 'brightness', parseInt(this.value))" class="w-full h-1.5 bg-gray-700 rounded-lg appearance-none">
+                            </div>
+                            <div id="spd-block-${serial}">
+                                <div class="flex justify-between text-[10px] text-gray-500 mb-1 font-medium"><i class="fa-solid fa-gauge-high opacity-50"></i><span>SPEED</span><i class="fa-solid fa-bolt"></i></div>
+                                <input type="range" id="spd-${serial}" min="1" max="10" value="${s.speed}" onchange="changeParam('${serial}', 'speed', parseInt(this.value))" class="w-full h-1.5 bg-gray-700 rounded-lg appearance-none">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Effects Tiles -->
+                    <div class="grid grid-cols-5 gap-1.5">
+                        <div class="relative group">
+                            <div onclick="changeParam('${serial}', 'effect', 1)" id="eff-${serial}-1" class="h-10 rounded-lg bg-gray-900 border border-purple-500 flex items-center justify-center cursor-pointer card-transition shadow-[0_0_8px_rgba(168,85,247,0.3)]">
+                                <i class="fa-solid fa-chart-simple text-purple-400 text-sm"></i>
+                            </div>
+                            <button onclick="openAudioModal('${serial}')" id="audio-settings-btn-${serial}" class="hidden absolute -top-2 -right-2 bg-purple-600 hover:bg-purple-500 text-white w-6 h-6 rounded-full shadow-lg items-center justify-center text-xs z-10 transition">
+                                <i class="fa-solid fa-gear"></i>
+                            </button>
+                        </div>
+                        <div onclick="changeParam('${serial}', 'effect', 2)" id="eff-${serial}-2" class="h-10 rounded-lg bg-gray-700 flex items-center justify-center cursor-pointer hover:bg-gray-600 card-transition"><i class="fa-solid fa-circle text-gray-300 text-sm"></i></div>
+                        <div onclick="changeParam('${serial}', 'effect', 3)" id="eff-${serial}-3" class="h-10 rounded-lg bg-gradient-to-r from-red-500 via-green-500 to-blue-500 flex items-center justify-center cursor-pointer card-transition"><i class="fa-solid fa-rainbow text-white drop-shadow-md text-sm"></i></div>
+                        <div onclick="changeParam('${serial}', 'effect', 4)" id="eff-${serial}-4" class="h-10 rounded-lg bg-gradient-to-br from-emerald-400 to-blue-600 flex items-center justify-center cursor-pointer card-transition"><i class="fa-solid fa-wind text-white drop-shadow-md text-sm"></i></div>
+                        <div onclick="changeParam('${serial}', 'effect', 5)" id="eff-${serial}-5" class="h-10 rounded-lg bg-gradient-to-t from-red-600 via-orange-500 to-yellow-400 flex items-center justify-center cursor-pointer card-transition"><i class="fa-solid fa-fire text-white drop-shadow-md text-sm"></i></div>
+                    </div>
+                </div>
+            </div>`;
+        }
+
+        // --- 7. LOGIC HANDLERS ---
+       function turnOff(serial) {
+            virtualDB[serial].state.effect = 0;
+            updateCardUI(serial);
+            sendCommand(serial);
+        }
+
+        function changeParam(serial, key, value) {
+            virtualDB[serial].state[key] = value;
+            updateCardUI(serial);
+            sendCommand(serial);
+        }
+
+        function updateCardUI(serial) {
+            const device = virtualDB[serial];
+            const s = device.state;
+            const isOn = s.effect !== 0;
+            const isOnline = device.online; // Читаем статус
+
+            // 1. Главная карточка и плашка Offline
+            const card = document.getElementById(`card-${serial}`);
+            const badge = document.getElementById(`offline-badge-${serial}`);
+            if(card) {
+                // Если оффлайн - делаем карточку серой (grayscale) и полупрозрачной
+                card.className = `bg-gray-800 border border-gray-700 rounded-2xl p-5 shadow-lg card-transition relative overflow-hidden ${isOnline ? '' : 'opacity-40 grayscale'}`;
+            }
+            if(badge) {
+                isOnline ? badge.classList.add('hidden') : badge.classList.remove('hidden');
+            }
+
+            // 2. Блокируем ВСЕ элементы управления, если ОФФЛАЙН
+            const controls = document.getElementById(`controls-${serial}`);
+            if(controls) {
+                // Если лампа выключена (isOn=false) ИЛИ она оффлайн, блокируем блок эффектов
+                controls.className = (isOnline && isOn) ? '' : 'opacity-50 pointer-events-none transition-opacity duration-300';
+            }
+
+            // 3. Тумблер On/Off
+            document.getElementById(`power-${serial}`).checked = isOn;
+            const pwrLbl = document.getElementById(`power-lbl-${serial}`);
+            const pwrChk = document.getElementById(`power-${serial}`);
+            if(pwrLbl) {
+                // Если оффлайн, тумблер тоже не кликабельный!
+                pwrLbl.className = `relative inline-flex items-center cursor-pointer mt-1 flex-shrink-0 ${isOnline ? '' : 'opacity-30 pointer-events-none'}`;
+            }
+            if(pwrChk) {
+                pwrChk.disabled = (!isOnline);
+            }
+            
+            // 4. Скрываем ползунки, если выключено или оффлайн
+            const slidersWrap = document.getElementById(`sliders-wrap-${serial}`);
+            if(slidersWrap) {
+                slidersWrap.className = `transition-all duration-300 ${(isOnline && isOn) ? 'opacity-100' : 'opacity-0 h-0 overflow-hidden mb-0'}`;
+            }
+
+            // 5. Цвет фона свечения
+            document.getElementById(`glow-${serial}`).style.backgroundColor = (isOnline && isOn) ? s.color : 'transparent';
+
+            // 6. Подсветка активной плитки эффекта (Только если онлайн и включено)
+            for(let i=1; i<=5; i++) {
+                const tile = document.getElementById(`eff-${serial}-${i}`);
+                if(!tile) continue;
+                if(s.effect === i && isOnline) {
+                    tile.classList.add('ring-2', 'ring-white', 'ring-offset-2', 'ring-offset-gray-800', 'scale-95');
+                } else {
+                    tile.classList.remove('ring-2', 'ring-white', 'ring-offset-2', 'ring-offset-gray-800', 'scale-95');
+                }
+            }
+
+            // 7. Скрытие/показ блоков в зависимости от режима
+            const cb = document.getElementById(`color-block-${serial}`);
+            const sb = document.getElementById(`spd-block-${serial}`);
+            const audioBtn = document.getElementById(`audio-settings-btn-${serial}`);
+
+            if(s.effect === 2) { cb.classList.remove('hidden'); } else { cb.classList.add('hidden'); }
+            if([3, 4, 5].includes(s.effect)) { sb.classList.remove('hidden'); } else { sb.classList.add('hidden'); }
+
+            if(s.effect === 1) {
+                if(audioBtn) {
+                    audioBtn.classList.remove('hidden');
+                    audioBtn.classList.add('flex');
+                }
+            } else {
+                if(audioBtn) {
+                    audioBtn.classList.add('hidden');
+                    audioBtn.classList.remove('flex');
+                }
+            }
+        }
+
+        // --- 8. MODALS ---
+        function openModal(id) {
+            document.getElementById(id).classList.remove('hidden');
+            if(id === 'modal-add') {
+                document.getElementById('add-serial').value = '';
+                document.getElementById('add-name').value = '';
+                document.getElementById('add-error').classList.add('hidden');
+                setTimeout(() => document.getElementById('add-serial').focus(), 100);
+            }
+        }
+        function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
+
+        function claimDevice() {
+            const serial = document.getElementById('add-serial').value.trim().toUpperCase();
+            const err = document.getElementById('add-error');
+            
+            if(!virtualDB[serial]) { err.textContent = "Device not found in factory DB."; err.classList.remove('hidden'); return; }
+            if(virtualDB[serial].claimed) { err.textContent = "Device is already registered."; err.classList.remove('hidden'); return; }
+            
+            virtualDB[serial].claimed = true;
+            const nameInput = document.getElementById('add-name').value.trim();
+            virtualDB[serial]._name = nameInput || serial;
+            closeModal('modal-add');
+            renderDashboard(); 
+        }
+
+        function removeDevice(serial) {
+            if(confirm("Are you sure?")) {
+                virtualDB[serial].claimed = false;
+                delete virtualDB[serial].name;
+                delete virtualDB[serial]._name;
+                const card = document.getElementById(`card-${serial}`);
+                card.classList.add('opacity-0', 'scale-90');
+                setTimeout(() => card.remove(), 300);
+            }
+        }
+
+        function openAudioModal(serial) {
+            const p = virtualDB[serial].state.audio_preset || 0;
+            document.getElementById('audio-target-device').value = serial;
+            
+            document.getElementById('audio-src').value = p & 0x03;
+            document.getElementById('audio-sens').value = (p >> 2) & 0x01;
+            document.getElementById('audio-geo').value = (p >> 3) & 0x01;
+            
+            openModal('modal-audio');
+        }
+
+        function saveAudioSettings() {
+            const serial = document.getElementById('audio-target-device').value;
+            const src = parseInt(document.getElementById('audio-src').value);
+            const sens = parseInt(document.getElementById('audio-sens').value);
+            const geo = parseInt(document.getElementById('audio-geo').value);
+            
+            const preset = src + (sens * 4) + (geo * 8);
+            changeParam(serial, 'audio_preset', preset);
+            closeModal('modal-audio');
+        }
+
+        document.addEventListener('click', (e) => {
+            const menu = document.getElementById('user-menu');
+            if(menu && !menu.contains(e.target) && !menu.previousElementSibling.contains(e.target)) {
+                menu.classList.add('hidden');
+            }
+        });
+    </script>
 </body>
 </html>
